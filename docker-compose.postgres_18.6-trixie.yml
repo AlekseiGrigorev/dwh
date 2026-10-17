@@ -1,0 +1,23 @@
+# docker-compose.postgres_18.6-trixie.yml
+# docker compose -f "docker-compose.postgres_18.6-trixie.yml" up -d --build
+
+services:
+  postgres_18.6-trixie:
+    build:
+      context: ./postgres_18.6-trixie  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is not set}
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./postgres_18.6-trixie/data:/var/lib/postgresql/data:rw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

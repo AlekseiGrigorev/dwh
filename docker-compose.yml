@@ -1,0 +1,6 @@
+# docker-compose.yml
+# docker compose up -d --build
+
+include:
+  - docker-compose.postgres_18.6-trixie.yml
+  - docker-compose.clickhouse_26.9.13.15-jammy.yml

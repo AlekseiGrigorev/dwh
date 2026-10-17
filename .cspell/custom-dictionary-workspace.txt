@@ -1,0 +1,26 @@
+# Custom Dictionary Words
+Aleksei
+bash
+clickhouse
+clinerules
+CRLF
+dbt
+dwh
+Grigorev
+healthcheck
+isready
+jammy
+macOS
+postgres
+postgresql
+POSIX
+psql
+pwsh
+trixie
+venv
+zsh
+версионируемые
+коммитится
+Коммитить
+коммитятся
+пинни

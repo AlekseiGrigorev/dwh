@@ -1,0 +1,24 @@
+# docker-compose.clickhouse_26.9.13.15-jammy.yml
+# docker compose -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" up -d --build
+
+services:
+  clickhouse_26.9.13.15-jammy:
+    build:
+      context: ./clickhouse_26.9.13.15-jammy  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    volumes:
+      - ./clickhouse_26.9.13.15-jammy/data:/var/lib/clickhouse:rw
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
