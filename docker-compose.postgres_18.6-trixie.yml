@@ -14,7 +14,9 @@ services:
     ports:
       - "15432:5432"
     volumes:
-      - ./postgres_18.6-trixie/data:/var/lib/postgresql/data:rw
+      # PostgreSQL 18+ хранит PGDATA в /var/lib/postgresql/18/docker,
+      # поэтому монтируется весь /var/lib/postgresql, а не /var/lib/postgresql/data.
+      - ./postgres_18.6-trixie/data:/var/lib/postgresql:rw
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s

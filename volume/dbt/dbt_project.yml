@@ -1,0 +1,15 @@
+name: "dwh"
+version: "1.0.0"
+config-version: 2
+
+profile: "dwh"
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+packages-install-path: "{{ env_var('DBT_PACKAGES_INSTALL_PATH', 'dbt_packages') }}"
+
+models:
+  dwh:
+    +materialized: view
+  elementary:
+    +schema: elementary

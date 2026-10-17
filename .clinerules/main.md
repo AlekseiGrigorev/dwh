@@ -100,20 +100,27 @@
 
 ## 7. Данные и volume
 
-- Состояние контейнера — только в `<директория>/data` (bind-mount, `rw`), например:
-  `- ./postgres_18.6-trixie/data:/var/lib/postgresql/data:rw`.
+- Состояние контейнера — только в `<директория>/data` (bind-mount, `rw`). Путь монтирования
+  задаёт образ: для PostgreSQL 18+ — `/var/lib/postgresql` (PGDATA —
+  `/var/lib/postgresql/18/docker`), для ClickHouse — `/var/lib/clickhouse`.
 - Каждый новый `data/` покрывается правилом `.gitignore` `*/data/`; отдельные записи
   не нужны.
 - Файлы внутри `data/` не редактируй и не читай «наугад»; для запросов используй клиент.
 - `volume/` — версионируемые общие ресурсы (init-скрипты, конфиги). Монтируй их `:ro`,
   если контейнер не должен их менять.
 
-## 8. dbt (действует, когда в репозитории появится dbt-проект)
+## 8. dbt
 
+- dbt-проект находится в `volume/dbt` и монтируется в контейнер `dbt-core_1.12.6`.
 - Профиль подключается через переменные окружения из `.env`; секретов в `profiles.yml` нет.
-- Проверка: `dbt debug` из директории dbt-проекта.
-- Отчёты: `dbt docs generate`, затем `dbt docs serve` с публикацией на `18081`.
-- В `.gitignore` уже учтены `target/`, `logs/`, `dbt_packages/`.
+- Проверка: `docker compose exec dbt-core_1.12.6 dbt debug --target postgres` и
+  `docker compose exec dbt-core_1.12.6 dbt debug --target clickhouse`.
+- Отчёты: `dbt docs generate --static` (файл `<директория>/data/target/static_index.html`),
+  затем `dbt docs serve` с публикацией на `18081`; Elementary — `edr report` в
+  `<директория>/data/elementary/index.html`.
+- В `.gitignore` учтены `target/`, `logs/`, `dbt_packages/`, `__pycache__/`, `.user.yml`.
+- При старте контейнера `dbt deps` выполняется автоматически при отсутствии пакетов
+  или изменении `packages.yml`/`package-lock.yml`; ошибка не блокирует запуск.
 
 ## 9. Документация
 
@@ -126,7 +133,7 @@ README.md обязателен и содержит разделы:
 4. Запуск отдельного контейнера: команда с `-f`.
 5. Остановка: `docker compose down` (без `-v`).
 6. Подключение: хост, порт, пользователь, БД (значения — из `.env`, без паролей).
-7. Проверка dbt: `dbt debug` (когда появится dbt-проект).
+7. Проверка dbt: `dbt debug` внутри контейнера (см. раздел 8).
 8. Отчёты: URL и порт (`http://localhost:18081`).
 
 - Любое изменение портов, переменных или команд → правка README в том же изменении.
@@ -164,10 +171,11 @@ README.md обязателен и содержит разделы:
 ## 12. Текущее состояние репозитория
 
 - Инфраструктура: `postgres_18.6-trixie`, `clickhouse_26.9.13.15-jammy`,
-  корневой `docker-compose.yml` через `include:`.
+  `airflow_3.3.2-python3.12` (`airflow standalone`), `dbt-core_1.12.6`
+  (dbt-core 1.12.6 + dbt-postgres 1.11.0 + dbt-clickhouse 1.10.3 +
+  elementary-data 0.26.1), корневой `docker-compose.yml` через `include:`.
 - Кроссплатформенность: инфраструктура рассчитана на Windows, Linux и macOS; README
   содержит варианты команд для PowerShell и `bash`/`zsh`.
-- dbt-проекта пока нет: раздел 8 и пункт 7 раздела 9 — целевое состояние.
-- `.tmp/airflow.compose.yaml` — черновик вне инфраструктуры (`.tmp` в `.gitignore`).
-  При переносе Airflow в инфраструктуру: порт `8081:8080` → `18080:8080`,
-  named volume → `airflow/data/`, директория — по шаблону `<image>_<tag>`.
+- dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`.
+- Отчёты и артефакты контейнеров: `<директория>/data` (bind-mount, покрыт `.gitignore`).
+- `.tmp/` — локальные черновики (`.tmp` в `.gitignore`), в инфраструктуру не входят.

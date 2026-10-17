@@ -1,0 +1,59 @@
+# docker-compose.airflow_3.3.2-python3.12.yml
+# docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" up -d --build
+#
+# Airflow запускается одной командой `airflow standalone`: api-server, scheduler,
+# dag-processor и triggerer работают в одном контейнере (development-режим).
+# Metadata DB `airflow` создаётся entrypoint'ом в сервисе postgres_18.6-trixie.
+
+services:
+  airflow_3.3.2-python3.12:
+    build:
+      context: ./airflow_3.3.2-python3.12  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    # root нужен только для chown bind-mount логов и создания metadata DB;
+    # entrypoint сразу опускается до штатного uid 50000 через gosu.
+    user: "0:0"
+    entrypoint: ["/usr/bin/dumb-init", "--", "/entrypoint-dwh.sh"]
+    command: ["standalone"]
+    environment:
+      # exec-команды запускаются от root (user: "0:0"); без PYTHONPATH
+      # CLI Airflow не видит пакеты, установленные в venv пользователя airflow.
+      PYTHONPATH: /home/airflow/.local/lib/python3.12/site-packages
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://127.0.0.1:8080/execution/"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "${AIRFLOW_ADMIN_USER:?AIRFLOW_ADMIN_USER is not set}:admin"
+      AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?AIRFLOW_JWT_SECRET is not set}
+      AIRFLOW__API_AUTH__JWT_ISSUER: airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER:?POSTGRES_USER is not set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}@postgres_18.6-trixie:5432/${AIRFLOW_DB:?AIRFLOW_DB is not set}"
+      # Параметры для entrypoint: создание metadata DB и логин SimpleAuthManager.
+      AIRFLOW_DB: ${AIRFLOW_DB:?AIRFLOW_DB is not set}
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:?AIRFLOW_ADMIN_USER is not set}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD is not set}
+      # Внутри сети проекта обращение — по именам сервисов, а не по localhost.
+      POSTGRES_HOST: postgres_18.6-trixie
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is not set}
+      CLICKHOUSE_HOST: clickhouse_26.9.13.15-jammy
+      CLICKHOUSE_HTTP_PORT: "8123"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}
+      # Connections для DAG-ов: smoke-test и примеры подключения к обеим БД.
+      AIRFLOW_CONN_POSTGRES_DWH: "postgresql://${POSTGRES_USER:?POSTGRES_USER is not set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}@postgres_18.6-trixie:5432/${POSTGRES_DB:?POSTGRES_DB is not set}"
+      AIRFLOW_CONN_CLICKHOUSE_DWH: "clickhouse://${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}:${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}@clickhouse_26.9.13.15-jammy:8123/${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./airflow_3.3.2-python3.12/data/logs:/opt/airflow/logs:rw
+      - ./volume/airflow/dags:/opt/airflow/dags:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s

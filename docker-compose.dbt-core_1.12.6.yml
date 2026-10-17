@@ -1,0 +1,41 @@
+# docker-compose.dbt-core_1.12.6.yml
+# docker compose -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
+#
+# Контейнер — постоянная среда выполнения dbt и Elementary.
+# Команды запускаются через `docker compose exec`, например:
+#   docker compose exec dbt-core_1.12.6 dbt debug --target postgres
+
+services:
+  dbt-core_1.12.6:
+    build:
+      context: ./dbt-core_1.12.6  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    entrypoint: ["/entrypoint-dbt.sh"]
+    working_dir: /dbt/project
+    environment:
+      # Внутри сети проекта обращение — по именам сервисов, а не по localhost.
+      POSTGRES_HOST: postgres_18.6-trixie
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is not set}
+      CLICKHOUSE_HOST: clickhouse_26.9.13.15-jammy
+      CLICKHOUSE_HTTP_PORT: "8123"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}
+      DBT_PROFILES_DIR: /dbt/project
+      DBT_TARGET_PATH: /dbt/artifacts/target
+      DBT_LOG_PATH: /dbt/artifacts/logs
+      DBT_PACKAGES_INSTALL_PATH: /dbt/artifacts/dbt_packages
+      DBT_POSTGRES_SCHEMA: ${DBT_POSTGRES_SCHEMA:?DBT_POSTGRES_SCHEMA is not set}
+      DBT_CLICKHOUSE_SCHEMA: ${DBT_CLICKHOUSE_SCHEMA:?DBT_CLICKHOUSE_SCHEMA is not set}
+    ports:
+      - "18081:8080"
+    volumes:
+      # Проект версионируется в репозитории, артефакты — в data/ контейнера.
+      # Монтируется весь каталог artifacts: dbt удаляет и пересоздаёт
+      # подкаталоги (dbt_packages, target), отдельные bind-mount'ы дают EBUSY.
+      - ./volume/dbt:/dbt/project:rw
+      - ./dbt-core_1.12.6/data:/dbt/artifacts:rw
