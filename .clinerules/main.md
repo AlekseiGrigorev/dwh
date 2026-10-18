@@ -7,7 +7,7 @@
 ## 1. Контекст
 
 - Назначение: тестовая контейнерная инфраструктура для разработки и проверки DWH
-  (PostgreSQL, ClickHouse, dbt; Airflow — опционально).
+  (PostgreSQL, ClickHouse, dbt; Airflow, Dagster — опционально).
 - Запуск: локально, Docker Compose v2.20+ командой `docker compose` (не `docker-compose`).
 - Поддерживаемые ОС: Windows, Linux, macOS. Работа над проектом и развёртывание обязаны
   выполняться на всех трёх ОС без правок в репозитории; ОС-специфичный приём не должен
@@ -82,6 +82,7 @@
 | clickhouse (http)   | 8123      | 18123 |
 | clickhouse (native) | 9000      | 19000 |
 | airflow webserver   | 8080      | 18080 |
+| dagster webserver   | 3000      | 13000 |
 | dbt docs serve      | 8080      | 18081 |
 
 - Формат записи только строкой: `- "18123:8123"`.
@@ -171,11 +172,14 @@ README.md обязателен и содержит разделы:
 ## 12. Текущее состояние репозитория
 
 - Инфраструктура: `postgres_18.6-trixie`, `clickhouse_26.9.13.15-jammy`,
-  `airflow_3.3.2-python3.12` (`airflow standalone`), `dbt-core_1.12.6`
+  `airflow_3.3.2-python3.12` (`airflow standalone`), `dagster_1.13.26`
+  (`dagster dev`: webserver + daemon, dagster 1.13.26 + dagster-webserver 1.13.26 +
+  dagster-postgres 0.29.26), `dbt-core_1.12.6`
   (dbt-core 1.12.6 + dbt-postgres 1.11.0 + dbt-clickhouse 1.10.3 +
   elementary-data 0.26.1), корневой `docker-compose.yml` через `include:`.
 - Кроссплатформенность: инфраструктура рассчитана на Windows, Linux и macOS; README
   содержит варианты команд для PowerShell и `bash`/`zsh`.
-- dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`.
+- dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`; код-локация Dagster
+  и `dagster.yaml`: `volume/dagster`.
 - Отчёты и артефакты контейнеров: `<директория>/data` (bind-mount, покрыт `.gitignore`).
 - `.tmp/` — локальные черновики (`.tmp` в `.gitignore`), в инфраструктуру не входят.

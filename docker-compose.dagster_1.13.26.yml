@@ -1,0 +1,54 @@
+# docker-compose.dagster_1.13.26.yml
+# docker compose -f "docker-compose.dagster_1.13.26.yml" up -d --build
+#
+# Dagster запускается командой `dagster dev`: webserver и daemon работают
+# в одном контейнере (development-режим, как `airflow standalone`).
+# Metadata DB `DAGSTER_DB` создаётся entrypoint'ом в сервисе postgres_18.6-trixie.
+# UI: http://localhost:13000
+
+services:
+  dagster_1.13.26:
+    build:
+      context: ./dagster_1.13.26  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    entrypoint: ["/entrypoint-dagster.sh"]
+    command:
+      - "dev"
+      - "-h"
+      - "0.0.0.0"
+      - "-p"
+      - "3000"
+      - "-f"
+      - "/opt/dagster/app/definitions.py"
+    # Рабочий каталог совпадает с DAGSTER_HOME: иначе `dagster dev` предупреждает,
+    # что найденный в cwd dagster.yaml не будет использован для настройки инстанса.
+    working_dir: /opt/dagster/dagster_home
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      # volume/dagster монтируется только на чтение.
+      PYTHONDONTWRITEBYTECODE: "1"
+      DAGSTER_DB: ${DAGSTER_DB:?DAGSTER_DB is not set}
+      # Внутри сети проекта обращение — по именам сервисов, а не по localhost.
+      POSTGRES_HOST: postgres_18.6-trixie
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is not set}
+      CLICKHOUSE_HOST: clickhouse_26.9.13.15-jammy
+      CLICKHOUSE_HTTP_PORT: "8123"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}
+    ports:
+      - "13000:3000"
+    volumes:
+      # Код-локация и dagster.yaml версионируются, состояние инстанса — в data/.
+      - ./volume/dagster:/opt/dagster/app:ro
+      - ./dagster_1.13.26/data:/opt/dagster/dagster_home:rw
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/server_info"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s

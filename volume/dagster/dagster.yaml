@@ -1,0 +1,19 @@
+# Конфигурация экземпляра Dagster (копируется entrypoint'ом в DAGSTER_HOME).
+# Секретов нет: значения берутся из окружения контейнера (см. .env.example).
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: POSTGRES_USER
+      password:
+        env: POSTGRES_PASSWORD
+      hostname:
+        env: POSTGRES_HOST
+      db_name:
+        env: DAGSTER_DB
+      port:
+        env: POSTGRES_PORT
+
+# Телеметрия не нужна: инфраструктура тестовая и локальная.
+telemetry:
+  enabled: false

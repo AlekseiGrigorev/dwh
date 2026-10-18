@@ -9,6 +9,9 @@ clinerules
 CREATEDB
 CRLF
 DAG
+dagster
+Dagster
+DAGSTER
 dags
 datname
 dbname
@@ -30,9 +33,11 @@ postgres
 postgresql
 psql
 psycopg
+psycopg2
 pwsh
 PYTHONPATH
 sha256sum
+SQLAlchemy
 triggerer
 trixie
 unpause

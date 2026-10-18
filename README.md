@@ -1,7 +1,7 @@
 # DWH
 
 Тестовая контейнерная инфраструктура для разработки и проверки DWH: PostgreSQL,
-ClickHouse, Apache Airflow, dbt Core и Elementary.
+ClickHouse, Apache Airflow, Dagster, dbt Core и Elementary.
 Запуск — локально через Docker Compose на Windows, Linux и macOS.
 
 ## Версии
@@ -12,6 +12,11 @@ ClickHouse, Apache Airflow, dbt Core и Elementary.
 | ClickHouse | `26.9.13.15-jammy` |
 | Apache Airflow | `3.3.2` (Python 3.12) |
 | Airflow providers: postgres / clickhousedb | `7.0.2` / `1.0.0` |
+| Dagster / dagster-webserver | `1.13.26` |
+| dagster-postgres | `0.29.26` |
+| Python (базовый образ Dagster) | `3.12.15` (slim-trixie) |
+| psycopg2-binary | `2.9.13` |
+| SQLAlchemy | `2.0.55` |
 | dbt-core | `1.12.6` |
 | dbt-postgres | `1.11.0` |
 | dbt-clickhouse | `1.10.3` |
@@ -22,12 +27,21 @@ dbt 2.x в этой инфраструктуре не используется: 
 `dbt-core<2.0`). Связка `dbt-core 1.12.6 + dbt-postgres 1.11.0 +
 dbt-clickhouse 1.10.3 + elementary-data 0.26.1` проверена на совместимость.
 
+Dagster собран из официального образа `python:3.12.15-slim-trixie`: отдельного
+официального образа Dagster с тегом версии не публикуется, поэтому версия
+зафиксирована в Dockerfile (`dagster 1.13.26` + `dagster-webserver 1.13.26`).
+`dagster-postgres 0.29.26` — парная версия библиотеки: у неё собственная
+0.x-нумерация и жёсткая зависимость `dagster==1.13.26`. Python 3.12 поддерживается
+dagster (требование `>=3.10,<3.15`). SQLAlchemy зафиксирован на ветке 2.0: в 2.1
+диалект `postgresql://` по умолчанию переключился на `psycopg` (v3), а
+`dagster-postgres 0.29.26` работает через `psycopg2`.
+
 ## Требования
 
 - Docker Engine 29+ (на Windows и macOS — Docker Desktop).
 - Docker Compose v2.20+ (команда `docker compose`, не `docker-compose`).
-- Не менее 8 ГБ памяти для Docker Desktop: Airflow запускает несколько компонентов.
-- Свободные порты `15432`, `18123`, `19000`, `18080`, `18081`.
+- Не менее 10 ГБ памяти для Docker Desktop: Airflow и Dagster запускают несколько компонентов.
+- Свободные порты `15432`, `18123`, `19000`, `18080`, `18081`, `13000`.
 - Оболочка:
   - Windows — PowerShell 7 (`pwsh`);
   - Linux, macOS — POSIX-shell: `bash` или `zsh`.
@@ -58,6 +72,7 @@ PowerShell (Windows) и `bash`/`zsh` (Linux, macOS).
    - `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_USER`, `CLICKHOUSE_DB`;
    - `AIRFLOW_DB` (по умолчанию `airflow`), `AIRFLOW_ADMIN_USER`,
      `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_JWT_SECRET`;
+   - `DAGSTER_DB` (по умолчанию `dagster`);
    - `DBT_POSTGRES_SCHEMA`, `DBT_CLICKHOUSE_SCHEMA`.
 
    `.env` не коммитится, в `.env.example` только заглушки.
@@ -76,6 +91,9 @@ PowerShell (Windows) и `bash`/`zsh` (Linux, macOS).
      в `.env` и в файле SimpleAuthManager внутри контейнера.
    - Metadata DB `AIRFLOW_DB` создаётся автоматически; пользователь
      `POSTGRES_USER` должен иметь право `CREATEDB` (у `postgres` оно есть).
+   - Metadata DB `DAGSTER_DB` создаётся автоматически тем же пользователем
+     `POSTGRES_USER` (тоже требуется право `CREATEDB`); Dagster подключается
+     к ней под `POSTGRES_USER`/`POSTGRES_PASSWORD`.
 
 > Без заполненного `.env` compose завершится с ошибкой вида
 > `POSTGRES_PASSWORD is not set` — это ожидаемое поведение.
@@ -101,7 +119,7 @@ Compose-файлы используют относительные пути и �
   Airflow стартует от `root` только чтобы выполнить `chown` каталога логов, создать
   metadata DB и записать пароль SimpleAuthManager, после чего сразу опускается до
   штатного uid `50000` через `gosu`. dbt-контейнер работает от `root` (так устроен
-  официальный образ dbt).
+  официальный образ dbt), dagster-контейнер — тоже от `root` (базовый образ `python`).
 - **Docker Desktop (Windows, macOS).** Bind-mount идёт через файловую систему ВМ:
   обмен с `data/` медленнее, чем на Linux.
 - **Переводы строк.** Shell-скрипты, которые монтируются в Linux-контейнеры, сохраняйте
@@ -122,7 +140,7 @@ docker compose up -d --build
 Если версия Compose ниже 2.20 и `include` не поддерживается:
 
 ```console
-docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" -f "docker-compose.airflow_3.3.2-python3.12.yml" -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
+docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" -f "docker-compose.airflow_3.3.2-python3.12.yml" -f "docker-compose.dagster_1.13.26.yml" -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
 ```
 
 ### Отдельный контейнер
@@ -131,10 +149,11 @@ docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.c
 docker compose -f "docker-compose.postgres_18.6-trixie.yml" up -d --build
 docker compose -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" up -d --build
 docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" up -d --build
+docker compose -f "docker-compose.dagster_1.13.26.yml" up -d --build
 docker compose -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
 ```
 
-Airflow и dbt обращаются к БД по именам сервисов. Запускайте их после PostgreSQL и
+Airflow, Dagster и dbt обращаются к БД по именам сервисов. Запускайте их после PostgreSQL и
 ClickHouse. При запуске отдельных файлов из корня репозитория compose использует одно
 имя проекта (`dwh`) и общую сеть `dwh_default`, поэтому имена сервисов резолвятся.
 
@@ -149,6 +168,16 @@ Metadata DB `AIRFLOW_DB` создаётся entrypoint'ом в PostgreSQL, ес�
 
 DAG `dwh_healthcheck` выполняет `SELECT 1` в PostgreSQL и ClickHouse через connections
 `postgres_dwh` и `clickhouse_dwh` (создаются из `AIRFLOW_CONN_*`).
+
+### Dagster
+
+Dagster запускается командой `dagster dev`: webserver и daemon работают в одном
+контейнере (режим для разработки). UI: `http://localhost:13000`, аутентификации
+в OSS-версии нет. Metadata DB `DAGSTER_DB` создаётся entrypoint'ом в PostgreSQL,
+состояние экземпляра (`DAGSTER_HOME`) пишется в `dagster_1.13.26/data`.
+
+Код-локация — `volume/dagster/definitions.py`; ассеты `postgres_healthcheck` и
+`clickhouse_healthcheck` выполняют `SELECT 1` в PostgreSQL и ClickHouse.
 
 ## Остановка
 
@@ -169,6 +198,7 @@ docker compose down
 | ClickHouse (HTTP) | localhost | 18123 | `CLICKHOUSE_USER` | `CLICKHOUSE_DB` |
 | ClickHouse (native) | localhost | 19000 | `CLICKHOUSE_USER` | `CLICKHOUSE_DB` |
 | Airflow UI | localhost | 18080 | `AIRFLOW_ADMIN_USER` | — |
+| Dagster UI | localhost | 13000 | — (без аутентификации) | — |
 | dbt docs (опционально) | localhost | 18081 | — | — |
 
 Примеры (одинаково для PowerShell и `bash`/`zsh`):
@@ -192,6 +222,38 @@ docker compose exec airflow_3.3.2-python3.12 airflow providers list
 ClickHouse. Результат виден в UI (`http://localhost:18080`) и в логах контейнера.
 DAG создаётся на паузе (`AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true`): включите его
 в UI или командой `docker compose exec airflow_3.3.2-python3.12 airflow dags unpause dwh_healthcheck`.
+
+## Dagster
+
+Код-локация лежит в `volume/dagster` и монтируется в контейнер как `/opt/dagster/app`
+(только чтение). `dagster.yaml` из этого каталога entrypoint копирует в `DAGSTER_HOME`
+при старте; секретов в нём нет — параметры берутся из окружения контейнера.
+Состояние экземпляра (runs, event log, расписания) хранится в PostgreSQL (`DAGSTER_DB`),
+а `DAGSTER_HOME` — в `dagster_1.13.26/data`.
+
+`dagster dev` — development-режим (`DAGSTER_IS_DEV_CLI=1`): schedules и sensors
+создаются остановленными, запуски из UI выполняются внутри контейнера.
+
+Команды выполняются внутри контейнера (одинаковы на всех ОС):
+
+```console
+docker compose exec dagster_1.13.26 dagster --version
+docker compose exec dagster_1.13.26 dagster definitions validate -f /opt/dagster/app/definitions.py
+docker compose exec dagster_1.13.26 dagster asset list -f /opt/dagster/app/definitions.py
+docker compose exec dagster_1.13.26 dagster asset materialize --select "*" -f /opt/dagster/app/definitions.py
+```
+
+`dagster asset materialize` материализует оба ассета: `postgres_healthcheck` и
+`clickhouse_healthcheck`. Команда помечена в Dagster как устаревшая в пользу
+`dg launch` (CLI `dg` ставится отдельным пакетом и в образ не входит), поэтому
+выводит предупреждение, но работает. Результат виден в UI (`http://localhost:13000`).
+
+Первый старт контейнера применяет миграции Dagster в `DAGSTER_DB` и может занять
+до минуты; healthcheck — запрос `GET /server_info`.
+
+При старте в логах есть предупреждение `SupersessionWarning` с советом использовать
+`dg dev`: CLI `dg` ставится отдельным пакетом и в образ не входит, `dagster dev`
+в версии 1.13.26 работает штатно. Предупреждение информационное.
 
 ## dbt
 
@@ -283,12 +345,14 @@ docker compose exec dbt-core_1.12.6 dbt docs serve --host 0.0.0.0 --port 8080 --
 ```console
 docker compose ps
 docker compose logs -f airflow_3.3.2-python3.12
+docker compose logs -f dagster_1.13.26
 docker compose logs -f dbt-core_1.12.6
 ```
 
-У PostgreSQL, ClickHouse и Airflow есть `healthcheck`; в `docker compose ps` статус
-должен быть `healthy`. У dbt-контейнера healthcheck нет: это среда выполнения команд,
-он постоянно запущен и проверяется через `docker compose exec`.
+У PostgreSQL, ClickHouse, Airflow и Dagster есть `healthcheck`; в `docker compose ps`
+статус должен быть `healthy`. У Dagster проверяется `GET /server_info`, первый старт
+дольше обычного: применяются миграции в `DAGSTER_DB`. У dbt-контейнера healthcheck нет:
+это среда выполнения команд, он постоянно запущен и проверяется через `docker compose exec`.
 
 ## Структура репозитория
 
@@ -296,13 +360,16 @@ docker compose logs -f dbt-core_1.12.6
 .
 ├── airflow_3.3.2-python3.12/              # Dockerfile, entrypoint, data/logs
 ├── clickhouse_26.9.13.15-jammy/           # Dockerfile контейнера ClickHouse
+├── dagster_1.13.26/                       # Dockerfile, entrypoint, data/ (DAGSTER_HOME)
 ├── dbt-core_1.12.6/                       # Dockerfile, data/ (target, elementary, ...)
 ├── postgres_18.6-trixie/                  # Dockerfile контейнера PostgreSQL
 ├── volume/
 │   ├── airflow/dags/                      # DAG-и Airflow
+│   ├── dagster/                           # код-локация и dagster.yaml
 │   └── dbt/                               # dbt-проект (профиль, модели, пакеты)
 ├── docker-compose.airflow_3.3.2-python3.12.yml
 ├── docker-compose.clickhouse_26.9.13.15-jammy.yml
+├── docker-compose.dagster_1.13.26.yml
 ├── docker-compose.dbt-core_1.12.6.yml
 ├── docker-compose.postgres_18.6-trixie.yml
 ├── docker-compose.yml                     # все контейнеры через include
@@ -324,6 +391,7 @@ docker compose config
 
 # Проверить отдельные файлы
 docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" config -q
+docker compose -f "docker-compose.dagster_1.13.26.yml" config -q
 docker compose -f "docker-compose.dbt-core_1.12.6.yml" config -q
 
 # Пересобрать один сервис
@@ -333,6 +401,7 @@ docker compose up -d --build airflow_3.3.2-python3.12
 docker compose exec postgres_18.6-trixie mc
 docker compose exec clickhouse_26.9.13.15-jammy mc
 docker compose exec airflow_3.3.2-python3.12 mc
+docker compose exec dagster_1.13.26 mc
 docker compose exec dbt-core_1.12.6 mc
 ```
 
@@ -341,6 +410,9 @@ docker compose exec dbt-core_1.12.6 mc
 - `airflow standalone` — официальный development-режим Airflow. Для тестовой
   инфраструктуры этого достаточно; при необходимости Airflow можно разложить на
   отдельные сервисы api-server/scheduler/dag-processor/triggerer.
+- `dagster dev` — development-режим Dagster: webserver и daemon в одном контейнере,
+  без аутентификации. Для production-подобного развёртывания Dagster разделяют на
+  webserver, daemon и code server, но для тестовой инфраструктуры достаточно dev-режима.
 - Первый `docker compose up -d --build` скачивает образы и ставит пакеты — это
   занимает время и требует доступа в интернет. `dbt deps` также требует сети и
   может выполняться автоматически при первом старте dbt-контейнера.
