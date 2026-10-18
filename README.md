@@ -1,7 +1,7 @@
 # DWH
 
 Тестовая контейнерная инфраструктура для разработки и проверки DWH: PostgreSQL,
-ClickHouse, Apache Airflow, Dagster, dbt Core и Elementary.
+ClickHouse, Apache Airflow, Dagster, dbt Core, Elementary и Apache Superset.
 Запуск — локально через Docker Compose на Windows, Linux и macOS.
 
 ## Версии
@@ -21,6 +21,9 @@ ClickHouse, Apache Airflow, Dagster, dbt Core и Elementary.
 | dbt-postgres | `1.11.0` |
 | dbt-clickhouse | `1.10.3` |
 | Elementary CLI / dbt package | `0.26.1` |
+| Apache Superset | `6.1.0` (Python 3.10) |
+| psycopg2-binary (Superset) | `2.9.13` |
+| clickhouse-connect | `0.15.1` |
 
 dbt 2.x в этой инфраструктуре не используется: `dbt-clickhouse 1.10.3` и
 `dbt-postgres 1.11.0` собраны под `dbt-core 1.x` (у `dbt-postgres` требование
@@ -36,12 +39,22 @@ dagster (требование `>=3.10,<3.15`). SQLAlchemy зафиксирова
 диалект `postgresql://` по умолчанию переключился на `psycopg` (v3), а
 `dagster-postgres 0.29.26` работает через `psycopg2`.
 
+Superset собран из официального образа `apache/superset:6.1.0` (Python 3.10,
+Debian bookworm), версия зафиксирована тегом. В `lean`-образе нет драйверов БД, поэтому
+в `superset_6.1.0/Dockerfile` доустановлены `psycopg2-binary 2.9.13` (metadata DB
+в PostgreSQL) и `clickhouse-connect 0.15.1` (ClickHouse). `clickhouse-sqlalchemy`
+не используется: его ветка 0.3.x требует SQLAlchemy 2.0, а Superset 6.1.0 зафиксирован
+на SQLAlchemy 1.4.54. Поддерживаемый Superset драйвер ClickHouse — `clickhouse-connect`
+(extra `clickhouse`: `>=0.13.0,<1.0`, диалект `clickhousedb+connect`).
+
 ## Требования
 
 - Docker Engine 29+ (на Windows и macOS — Docker Desktop).
 - Docker Compose v2.20+ (команда `docker compose`, не `docker-compose`).
-- Не менее 10 ГБ памяти для Docker Desktop: Airflow и Dagster запускают несколько компонентов.
-- Свободные порты `15432`, `18123`, `19000`, `18080`, `18081`, `13000`.
+- Не менее 12 ГБ памяти для Docker Desktop: Airflow, Dagster и Superset запускают
+  несколько компонентов. Если часть контейнеров отключена (см. «Отключение ненужных
+  контейнеров»), требования к памяти ниже.
+- Свободные порты `15432`, `18123`, `19000`, `18080`, `18081`, `13000`, `18088`.
 - Оболочка:
   - Windows — PowerShell 7 (`pwsh`);
   - Linux, macOS — POSIX-shell: `bash` или `zsh`.
@@ -73,6 +86,8 @@ PowerShell (Windows) и `bash`/`zsh` (Linux, macOS).
    - `AIRFLOW_DB` (по умолчанию `airflow`), `AIRFLOW_ADMIN_USER`,
      `AIRFLOW_ADMIN_PASSWORD`, `AIRFLOW_JWT_SECRET`;
    - `DAGSTER_DB` (по умолчанию `dagster`);
+   - `SUPERSET_DB` (по умолчанию `superset`), `SUPERSET_SECRET_KEY`,
+     `SUPERSET_ADMIN_USER`, `SUPERSET_ADMIN_PASSWORD`, `SUPERSET_ADMIN_EMAIL`;
    - `DBT_POSTGRES_SCHEMA`, `DBT_CLICKHOUSE_SCHEMA`.
 
    `.env` не коммитится, в `.env.example` только заглушки.
@@ -84,9 +99,9 @@ PowerShell (Windows) и `bash`/`zsh` (Linux, macOS).
      сервисов (`postgres_18.6-trixie`, `clickhouse_26.9.13.15-jammy`) и
      внутренние порты (`5432`, `8123`).
    - Пароль `POSTGRES_PASSWORD` и `CLICKHOUSE_PASSWORD` попадают в URI
-     (`AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`, `AIRFLOW_CONN_*`). Используйте
-     URL-безопасные пароли (буквы, цифры, `_`, `-`); заглушка `change_me`
-     подходит.
+     (`AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`, `AIRFLOW_CONN_*`,
+     `SUPERSET__SQLALCHEMY_DATABASE_URI`). Используйте URL-безопасные пароли
+     (буквы, цифры, `_`, `-`); заглушка `change_me` подходит.
    - `AIRFLOW_ADMIN_PASSWORD` — пароль входа в UI Airflow, хранится только
      в `.env` и в файле SimpleAuthManager внутри контейнера.
    - Metadata DB `AIRFLOW_DB` создаётся автоматически; пользователь
@@ -94,6 +109,28 @@ PowerShell (Windows) и `bash`/`zsh` (Linux, macOS).
    - Metadata DB `DAGSTER_DB` создаётся автоматически тем же пользователем
      `POSTGRES_USER` (тоже требуется право `CREATEDB`); Dagster подключается
      к ней под `POSTGRES_USER`/`POSTGRES_PASSWORD`.
+   - Metadata DB `SUPERSET_DB` создаётся автоматически тем же пользователем
+     `POSTGRES_USER` (тоже требуется право `CREATEDB`); Superset подключается
+     к ней под `POSTGRES_USER`/`POSTGRES_PASSWORD` (`SUPERSET__SQLALCHEMY_DATABASE_URI`).
+   - `SUPERSET_SECRET_KEY` — случайная строка не короче 42 символов. Значение по
+     умолчанию Superset (`CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET`) запрещено: контейнер
+     с ним не запускается. Сгенерировать значение:
+
+     Windows (PowerShell 7):
+
+     ```powershell
+     -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 48 | ForEach-Object { [char]$_ })
+     ```
+
+     Linux, macOS (bash, zsh):
+
+     ```bash
+     openssl rand -base64 42
+     ```
+
+   - `SUPERSET_ADMIN_PASSWORD` — пароль администратора Superset. Применяется при
+     создании пользователя (первый старт контейнера); у существующего пользователя
+     пароль не перезаписывается — см. раздел «Superset».
 
 > Без заполненного `.env` compose завершится с ошибкой вида
 > `POSTGRES_PASSWORD is not set` — это ожидаемое поведение.
@@ -120,6 +157,8 @@ Compose-файлы используют относительные пути и �
   metadata DB и записать пароль SimpleAuthManager, после чего сразу опускается до
   штатного uid `50000` через `gosu`. dbt-контейнер работает от `root` (так устроен
   официальный образ dbt), dagster-контейнер — тоже от `root` (базовый образ `python`).
+  Superset стартует от `root` только чтобы выполнить `chown` каталога `SUPERSET_HOME`,
+  после чего сразу опускается до штатного пользователя `superset` через `gosu`.
 - **Docker Desktop (Windows, macOS).** Bind-mount идёт через файловую систему ВМ:
   обмен с `data/` медленнее, чем на Linux.
 - **Переводы строк.** Shell-скрипты, которые монтируются в Linux-контейнеры, сохраняйте
@@ -140,8 +179,76 @@ docker compose up -d --build
 Если версия Compose ниже 2.20 и `include` не поддерживается:
 
 ```console
-docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" -f "docker-compose.airflow_3.3.2-python3.12.yml" -f "docker-compose.dagster_1.13.26.yml" -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
+docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" -f "docker-compose.airflow_3.3.2-python3.12.yml" -f "docker-compose.dagster_1.13.26.yml" -f "docker-compose.dbt-core_1.12.6.yml" -f "docker-compose.superset_6.1.0.yml" up -d --build
 ```
+
+### Отключение ненужных контейнеров
+
+Если Airflow, Dagster, Superset или dbt не нужны, их можно не запускать: зависимости есть
+только от PostgreSQL и ClickHouse, поэтому остальные сервисы работают как обычно.
+Ориентировочное потребление памяти в простое (замер в Docker Desktop на Windows; зависит
+от ОС и нагрузки): Airflow ~1.3 ГБ, ClickHouse ~0.7 ГБ, Dagster ~0.5 ГБ, Superset ~0.2 ГБ,
+PostgreSQL ~0.1 ГБ, dbt ~0.1 ГБ. Отключение Dagster и Superset освобождает около 0.7 ГБ.
+
+#### Отключить в корневом compose
+
+Закомментируйте ненужные строки в `include:` файла `docker-compose.yml`. Пример: оставлены
+PostgreSQL, ClickHouse, Airflow и dbt.
+
+```yaml
+include:
+  - docker-compose.postgres_18.6-trixie.yml
+  - docker-compose.clickhouse_26.9.13.15-jammy.yml
+  - docker-compose.airflow_3.3.2-python3.12.yml
+  # - docker-compose.dagster_1.13.26.yml
+  - docker-compose.dbt-core_1.12.6.yml
+  # - docker-compose.superset_6.1.0.yml
+```
+
+Проверить, какие сервисы остались в проекте, и запустить их:
+
+```console
+docker compose config --services
+docker compose up -d --build
+```
+
+Уже запущенные контейнеры после комментария становятся для compose «orphan»: он выводит
+предупреждение, но сам их не останавливает, и они продолжают занимать память. Остановите
+и удалите их заранее — данные в `*/data` и metadata DB при этом сохраняются (`down` без `-v`):
+
+```console
+docker compose -f "docker-compose.dagster_1.13.26.yml" down
+docker compose -f "docker-compose.superset_6.1.0.yml" down
+```
+
+То же относится к `docker compose down`: при закомментированном файле он не остановит
+такой контейнер, потому что сервиса нет в текущей конфигурации. Останавливайте его
+собственным `-f`-файлом или командой `docker compose stop <сервис>`.
+
+Возврат сервиса: раскомментируйте строку и выполните `docker compose up -d --build`.
+Каталоги `<директория>/data` и базы `airflow`, `dagster`, `superset` в PostgreSQL
+сохраняются, поэтому настройки (включая администратора Superset) не теряются.
+Переменные `.env` отключённого сервиса при этом становятся необязательными: compose
+проверяет только включённые файлы.
+
+Корневой `docker-compose.yml` общий для всех, поэтому не коммитьте закомментированные
+строки без согласования — для личной экономии ресурсов используйте разовый запуск ниже.
+
+#### Разово запустить только нужные файлы
+
+Без правок репозитория: перечислите в `-f` только нужные compose-файлы. Пример —
+PostgreSQL, ClickHouse и dbt:
+
+```console
+docker compose -f "docker-compose.postgres_18.6-trixie.yml" -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
+```
+
+Этот же вариант используйте, если версия Compose ниже 2.20 и `include` не поддерживается.
+Остановка — та же цепочка `-f` с командой `down` (без `-v`).
+
+Профили `profiles:` в compose для этого не используются: сервис с профилем не запускается
+командой `docker compose -f "docker-compose.<директория>.yml" up -d --build` без `--profile`,
+а каждый файл должен запускаться самостоятельно.
 
 ### Отдельный контейнер
 
@@ -151,11 +258,12 @@ docker compose -f "docker-compose.clickhouse_26.9.13.15-jammy.yml" up -d --build
 docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" up -d --build
 docker compose -f "docker-compose.dagster_1.13.26.yml" up -d --build
 docker compose -f "docker-compose.dbt-core_1.12.6.yml" up -d --build
+docker compose -f "docker-compose.superset_6.1.0.yml" up -d --build
 ```
 
-Airflow, Dagster и dbt обращаются к БД по именам сервисов. Запускайте их после PostgreSQL и
-ClickHouse. При запуске отдельных файлов из корня репозитория compose использует одно
-имя проекта (`dwh`) и общую сеть `dwh_default`, поэтому имена сервисов резолвятся.
+Airflow, Dagster, dbt и Superset обращаются к БД по именам сервисов. Запускайте их после
+PostgreSQL и ClickHouse. При запуске отдельных файлов из корня репозитория compose использует
+одно имя проекта (`dwh`) и общую сеть `dwh_default`, поэтому имена сервисов резолвятся.
 
 ### Airflow
 
@@ -199,6 +307,7 @@ docker compose down
 | ClickHouse (native) | localhost | 19000 | `CLICKHOUSE_USER` | `CLICKHOUSE_DB` |
 | Airflow UI | localhost | 18080 | `AIRFLOW_ADMIN_USER` | — |
 | Dagster UI | localhost | 13000 | — (без аутентификации) | — |
+| Superset UI | localhost | 18088 | `SUPERSET_ADMIN_USER` | — |
 | dbt docs (опционально) | localhost | 18081 | — | — |
 
 Примеры (одинаково для PowerShell и `bash`/`zsh`):
@@ -289,6 +398,54 @@ docker compose exec dbt-core_1.12.6 dbt run --select elementary --target postgre
 а пакеты можно поставить вручную командой
 `docker compose exec dbt-core_1.12.6 dbt deps`.
 
+## Superset
+
+Superset запускается одним контейнером: entrypoint применяет миграции metadata DB,
+создаёт роли/permissions и администратора, затем запускает gunicorn
+(`/usr/bin/run-server.sh`). UI: `http://localhost:18088`, логин и пароль —
+`SUPERSET_ADMIN_USER` / `SUPERSET_ADMIN_PASSWORD`.
+
+Первый старт дольше обычного: `superset db upgrade` и `superset init` создают схему
+и permissions в `SUPERSET_DB`, на каждом следующем старте эти идемпотентные команды
+выполняются повторно. Каталог `SUPERSET_HOME` (`/app/superset_home`) пишется в
+`superset_6.1.0/data`; контейнер стартует от `root` только чтобы выполнить `chown`
+этого каталога, после чего сразу опускается до штатного пользователя `superset`
+через `gosu`.
+
+Администратор создаётся только при первом старте: если позже изменить
+`SUPERSET_ADMIN_PASSWORD`, пароль существующего пользователя не перезапишется.
+Сменить пароль можно в UI (`Settings → List Users`) или интерактивно:
+
+```console
+docker compose exec -it superset_6.1.0 superset fab reset-password --username admin
+```
+
+Команды выполняются внутри контейнера (одинаковы на всех ОС):
+
+```console
+docker compose exec superset_6.1.0 python -c "import importlib.metadata as m; print(m.version('apache-superset'))"
+docker compose exec superset_6.1.0 python -c "import importlib.metadata as m; print(m.version('clickhouse-connect'))"
+docker compose exec superset_6.1.0 python -c "import psycopg2; print(psycopg2.__version__)"
+```
+
+### Подключение Superset к БД
+
+Подключения создаются в UI (`Settings → Database Connections → + Database`):
+внутри Docker-сети адреса — по именам сервисов.
+
+| База | URI |
+|---|---|
+| PostgreSQL | `postgresql+psycopg2://POSTGRES_USER:POSTGRES_PASSWORD@postgres_18.6-trixie:5432/POSTGRES_DB` |
+| ClickHouse | `clickhousedb+connect://CLICKHOUSE_USER:CLICKHOUSE_PASSWORD@clickhouse_26.9.13.15-jammy:8123/CLICKHOUSE_DB` |
+
+Значения подставьте из `.env`. Для ClickHouse нужен HTTP-порт `8123` (не хост-порт
+`18123`) и драйвер `clickhouse-connect`, который уже установлен в образе;
+`clickhouse-sqlalchemy` с Superset 6.1.0 несовместим (требует SQLAlchemy 2.0).
+
+Redis в инфраструктуру не входит: кэш (`NullCache`) и состояние фильтров
+(`SupersetMetastoreCache`) работают без него, но асинхронные запросы, alerts/reports
+и cache warmup требуют Celery + Redis и здесь недоступны.
+
 ## Отчёты
 
 Nginx не используется: отчёты — самодостаточные HTML-файлы, они сохраняются на хосте
@@ -347,11 +504,14 @@ docker compose ps
 docker compose logs -f airflow_3.3.2-python3.12
 docker compose logs -f dagster_1.13.26
 docker compose logs -f dbt-core_1.12.6
+docker compose logs -f superset_6.1.0
 ```
 
-У PostgreSQL, ClickHouse, Airflow и Dagster есть `healthcheck`; в `docker compose ps`
-статус должен быть `healthy`. У Dagster проверяется `GET /server_info`, первый старт
-дольше обычного: применяются миграции в `DAGSTER_DB`. У dbt-контейнера healthcheck нет:
+У PostgreSQL, ClickHouse, Airflow, Dagster и Superset есть `healthcheck`; в
+`docker compose ps` статус должен быть `healthy`. У Dagster проверяется
+`GET /server_info`, первый старт дольше обычного: применяются миграции в `DAGSTER_DB`.
+У Superset проверяется `GET /health`; первый старт дольше обычного: применяются миграции
+в `SUPERSET_DB`, создаются permissions и администратор. У dbt-контейнера healthcheck нет:
 это среда выполнения команд, он постоянно запущен и проверяется через `docker compose exec`.
 
 ## Структура репозитория
@@ -363,6 +523,7 @@ docker compose logs -f dbt-core_1.12.6
 ├── dagster_1.13.26/                       # Dockerfile, entrypoint, data/ (DAGSTER_HOME)
 ├── dbt-core_1.12.6/                       # Dockerfile, data/ (target, elementary, ...)
 ├── postgres_18.6-trixie/                  # Dockerfile контейнера PostgreSQL
+├── superset_6.1.0/                        # Dockerfile, entrypoint, data/ (SUPERSET_HOME)
 ├── volume/
 │   ├── airflow/dags/                      # DAG-и Airflow
 │   ├── dagster/                           # код-локация и dagster.yaml
@@ -372,6 +533,7 @@ docker compose logs -f dbt-core_1.12.6
 ├── docker-compose.dagster_1.13.26.yml
 ├── docker-compose.dbt-core_1.12.6.yml
 ├── docker-compose.postgres_18.6-trixie.yml
+├── docker-compose.superset_6.1.0.yml
 ├── docker-compose.yml                     # все контейнеры через include
 ├── .env.example
 └── .clinerules/main.md                    # правила проекта
@@ -393,6 +555,7 @@ docker compose config
 docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" config -q
 docker compose -f "docker-compose.dagster_1.13.26.yml" config -q
 docker compose -f "docker-compose.dbt-core_1.12.6.yml" config -q
+docker compose -f "docker-compose.superset_6.1.0.yml" config -q
 
 # Пересобрать один сервис
 docker compose up -d --build airflow_3.3.2-python3.12
@@ -403,6 +566,7 @@ docker compose exec clickhouse_26.9.13.15-jammy mc
 docker compose exec airflow_3.3.2-python3.12 mc
 docker compose exec dagster_1.13.26 mc
 docker compose exec dbt-core_1.12.6 mc
+docker compose exec superset_6.1.0 mc
 ```
 
 ## Примечания
@@ -413,6 +577,11 @@ docker compose exec dbt-core_1.12.6 mc
 - `dagster dev` — development-режим Dagster: webserver и daemon в одном контейнере,
   без аутентификации. Для production-подобного развёртывания Dagster разделяют на
   webserver, daemon и code server, но для тестовой инфраструктуры достаточно dev-режима.
+- Superset запускается gunicorn'ом из официального образа (1 worker, 20 threads) —
+  это штатный режим `apache/superset`, но без Celery/Redis: асинхронные запросы,
+  alerts/reports и cache warmup недоступны. Для тестовой инфраструктуры этого достаточно.
+- `apache/superset:6.1.0` — последняя стабильная версия Superset на момент добавления;
+  7.0.0 опубликована только как `rc`, поэтому тег не используется.
 - Первый `docker compose up -d --build` скачивает образы и ставит пакеты — это
   занимает время и требует доступа в интернет. `dbt deps` также требует сети и
   может выполняться автоматически при первом старте dbt-контейнера.

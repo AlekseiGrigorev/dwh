@@ -1,0 +1,43 @@
+# docker-compose.superset_6.1.0.yml
+# docker compose -f "docker-compose.superset_6.1.0.yml" up -d --build
+#
+# Superset запускается одним контейнером: entrypoint применяет миграции metadata DB,
+# создаёт роли/permissions и администратора, затем запускает gunicorn (run-server.sh).
+# UI: http://localhost:18088
+# Metadata DB `SUPERSET_DB` создаётся entrypoint'ом в сервисе postgres_18.6-trixie.
+
+services:
+  superset_6.1.0:
+    build:
+      context: ./superset_6.1.0  # Dockerfile dir path
+      dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")
+    restart: unless-stopped
+    # root нужен только для chown bind-mount SUPERSET_HOME;
+    # entrypoint сразу опускается до штатного пользователя superset через gosu.
+    user: "0:0"
+    entrypoint: ["/entrypoint-superset.sh"]
+    command: ["/usr/bin/run-server.sh"]
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY is not set}
+      # URI metadata DB Superset; в сети проекта обращение — по имени сервиса.
+      SUPERSET__SQLALCHEMY_DATABASE_URI: "postgresql+psycopg2://${POSTGRES_USER:?POSTGRES_USER is not set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}@postgres_18.6-trixie:5432/${SUPERSET_DB:?SUPERSET_DB is not set}"
+      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:?SUPERSET_ADMIN_USER is not set}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:?SUPERSET_ADMIN_PASSWORD is not set}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:?SUPERSET_ADMIN_EMAIL is not set}
+      # Параметры для entrypoint: создание metadata DB в существующем PostgreSQL.
+      SUPERSET_DB: ${SUPERSET_DB:?SUPERSET_DB is not set}
+      POSTGRES_HOST: postgres_18.6-trixie
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}
+    ports:
+      - "18088:8088"
+    volumes:
+      # SUPERSET_HOME: загрузки, thumbnails и прочие файлы контейнера.
+      - ./superset_6.1.0/data:/app/superset_home:rw
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s

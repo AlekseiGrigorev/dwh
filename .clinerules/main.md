@@ -84,6 +84,7 @@
 | airflow webserver   | 8080      | 18080 |
 | dagster webserver   | 3000      | 13000 |
 | dbt docs serve      | 8080      | 18081 |
+| superset            | 8088      | 18088 |
 
 - Формат записи только строкой: `- "18123:8123"`.
 - Новый порт → сначала добавь его в эту таблицу, затем в compose и README.
@@ -176,7 +177,9 @@ README.md обязателен и содержит разделы:
   (`dagster dev`: webserver + daemon, dagster 1.13.26 + dagster-webserver 1.13.26 +
   dagster-postgres 0.29.26), `dbt-core_1.12.6`
   (dbt-core 1.12.6 + dbt-postgres 1.11.0 + dbt-clickhouse 1.10.3 +
-  elementary-data 0.26.1), корневой `docker-compose.yml` через `include:`.
+  elementary-data 0.26.1), `superset_6.1.0` (apache/superset 6.1.0 +
+  psycopg2-binary 2.9.13 + clickhouse-connect 0.15.1), корневой
+  `docker-compose.yml` через `include:`.
 - Кроссплатформенность: инфраструктура рассчитана на Windows, Linux и macOS; README
   содержит варианты команд для PowerShell и `bash`/`zsh`.
 - dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`; код-локация Dagster

@@ -23,6 +23,7 @@ elementary
 Elementary
 gosu
 Grigorev
+gunicorn
 healthcheck
 isready
 jammy
@@ -38,6 +39,8 @@ pwsh
 PYTHONPATH
 sha256sum
 SQLAlchemy
+superset
+Superset
 triggerer
 trixie
 unpause

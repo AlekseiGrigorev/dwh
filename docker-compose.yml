@@ -7,4 +7,4 @@ include:
   - docker-compose.airflow_3.3.2-python3.12.yml
   - docker-compose.dagster_1.13.26.yml
   - docker-compose.dbt-core_1.12.6.yml
-
+  - docker-compose.superset_6.1.0.yml
