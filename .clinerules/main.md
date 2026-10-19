@@ -67,6 +67,9 @@
   `environment`, `restart: unless-stopped`, `healthcheck` (для БД).
 - `depends_on` с `condition: service_healthy` добавляй только для сервисов, которые
   без БД не стартуют (например, dbt).
+- Если базовый образ сервиса опубликован только под `linux/amd64`, задай
+  `platform: linux/amd64` в compose-файле этого сервиса и опиши эмуляцию в README.
+  Остальным сервисам `platform` не задавай: их базовые образы multi-arch.
 - Явную секцию `networks` в пер-контейнерных файлах не задавай: один сервис живёт
   в дефолтной сети проекта. Корневой compose через `include:` объединяет сервисы
   в общую сеть проекта (`dwh_default`), внутри неё обращение — по имени сервиса.
@@ -156,6 +159,8 @@ README.md обязателен и содержит разделы:
 - [ ] Данные пишутся в `<директория>/data`, путь покрыт `.gitignore`.
 - [ ] Все параметры вынесены в `.env`, ключи добавлены в `.env.example`.
 - [ ] Порты соответствуют таблице, формат `"HOST:CONTAINER"`.
+- [ ] Для сервисов с amd64-only базовым образом задан `platform: linux/amd64`,
+      README описывает запуск на `linux/arm64`.
 - [ ] README обновлён.
 - [ ] В README есть команды развёртывания и запуска для Windows (PowerShell) и отдельно
       для Linux/macOS (`bash`/`zsh`) там, где команды различаются.
@@ -182,6 +187,8 @@ README.md обязателен и содержит разделы:
   `docker-compose.yml` через `include:`.
 - Кроссплатформенность: инфраструктура рассчитана на Windows, Linux и macOS; README
   содержит варианты команд для PowerShell и `bash`/`zsh`.
+  `dbt-core_1.12.6` закреплён за `linux/amd64` (образ dbt-core не публикует arm64),
+  на arm64 он работает через эмуляцию. Остальные базовые образы multi-arch.
 - dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`; код-локация Dagster
   и `dagster.yaml`: `volume/dagster`.
 - Отчёты и артефакты контейнеров: `<директория>/data` (bind-mount, покрыт `.gitignore`).

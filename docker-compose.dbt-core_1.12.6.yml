@@ -7,6 +7,11 @@
 
 services:
   dbt-core_1.12.6:
+    # ghcr.io/dbt-labs/dbt-core:1.12.6 опубликован только под linux/amd64,
+    # у остальных базовых образов проекта есть arm64. Без этой строки на
+    # arm64-хосте (Apple Silicon, ARM Linux) сборка падает с
+    # "no match for platform in manifest"; amd64 запускается через эмуляцию.
+    platform: linux/amd64
     build:
       context: ./dbt-core_1.12.6  # Dockerfile dir path
       dockerfile: Dockerfile  # Dockerfile name (by default "Dockerfile")

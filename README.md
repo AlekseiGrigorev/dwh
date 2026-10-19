@@ -55,6 +55,9 @@ Debian bookworm), версия зафиксирована тегом. В `lean`-
   несколько компонентов. Если часть контейнеров отключена (см. «Отключение ненужных
   контейнеров»), требования к памяти ниже.
 - Свободные порты `15432`, `18123`, `19000`, `18080`, `18081`, `13000`, `18088`.
+- Архитектура: `linux/amd64` — нативно на всех ОС. На `linux/arm64` (Apple Silicon,
+  ARM-серверы) все сервисы, кроме dbt, работают нативно; dbt-образ запускается
+  через эмуляцию (см. «Платформы и особенности ОС»).
 - Оболочка:
   - Windows — PowerShell 7 (`pwsh`);
   - Linux, macOS — POSIX-shell: `bash` или `zsh`.
@@ -144,6 +147,20 @@ Compose-файлы используют относительные пути и �
   в `bash`/`zsh`. Различаются только команды работы с файлами и окружением
   (копирование `.env`, активация виртуального окружения); команды `docker compose`
   идентичны.
+- **Архитектура CPU.** Все сервисы, кроме dbt, собраны на multi-arch базовых образах
+  и на `linux/arm64` работают нативно. `ghcr.io/dbt-labs/dbt-core:1.12.6` опубликован
+  только под `linux/amd64`, поэтому в `docker-compose.dbt-core_1.12.6.yml` задано
+  `platform: linux/amd64`: на arm64-хосте контейнер dbt работает через эмуляцию
+  (первый `up -d --build` заметно медленнее). Что нужно:
+  - macOS (Apple Silicon): Docker Desktop → Settings → General → включить
+    «Use Rosetta for x86_64/amd64 emulation» (или встроенная QEMU-эмуляция);
+  - Linux arm64: `sudo apt-get install -y qemu-user-static binfmt-support`
+    (Debian/Ubuntu; в Fedora/RHEL — `qemu-user-static`), проверить наличие
+    `/proc/sys/fs/binfmt_misc/qemu-x86_64`;
+  - Windows на ARM: Docker Desktop (WSL2) — binfmt настраивается автоматически.
+
+  Остальным сервисам `platform` не задан намеренно: иначе они потеряют нативную
+  скорость на arm64.
 - **Рабочая директория.** Все команды запускайте из корня репозитория: пути в compose
   относительные (`./postgres_18.6-trixie/data` и т. п.).
 - **Кавычки в путях.** Заключайте пути в двойные кавычки — это работает и в PowerShell,
@@ -556,6 +573,12 @@ docker compose -f "docker-compose.airflow_3.3.2-python3.12.yml" config -q
 docker compose -f "docker-compose.dagster_1.13.26.yml" config -q
 docker compose -f "docker-compose.dbt-core_1.12.6.yml" config -q
 docker compose -f "docker-compose.superset_6.1.0.yml" config -q
+
+# Проверить, какие платформы опубликованы у базового образа dbt
+docker buildx imagetools inspect ghcr.io/dbt-labs/dbt-core:1.12.6
+
+# Платформа собранного образа dbt (ожидается linux/amd64)
+docker compose images dbt-core_1.12.6
 
 # Пересобрать один сервис
 docker compose up -d --build airflow_3.3.2-python3.12
