@@ -126,6 +126,21 @@
 - В `.gitignore` учтены `target/`, `logs/`, `dbt_packages/`, `__pycache__/`, `.user.yml`.
 - При старте контейнера `dbt deps` выполняется автоматически при отсутствии пакетов
   или изменении `packages.yml`/`package-lock.yml`; ошибка не блокирует запуск.
+- dbt-рантаймов два: `dbt-core_1.12.6` (CLI-команды и отчёты) и venv
+  `/home/airflow/dbt-venv` в образе `airflow_3.3.2-python3.12` — из него dbt запускает
+  Cosmos. Версии пакетов в обоих рантаймах совпадают.
+- `volume/dbt` монтируется в Airflow только для чтения (`:ro`): Cosmos работает с
+  временной копией проекта, а `package-lock.yml` обновляется в `dbt-core_1.12.6`.
+- Артефакты dbt в Airflow — `airflow_3.3.2-python3.12/data/dbt-artifacts` (`target`,
+  `logs`, `dbt_packages`); владельца каталога выставляет entrypoint Airflow.
+- DAG-и Cosmos: `dbt_project_path` задаётся только в `ProjectConfig` (одновременно с
+  `RenderConfig`/`ExecutionConfig` — ошибка Cosmos), `install_dbt_deps=False` (пакеты
+  ставит entrypoint), путь к бинарю — из `DBT_EXECUTABLE_PATH`, режим вызова —
+  `InvocationMode.SUBPROCESS` (у `InvocationMode.DBT_RUNNER` по умолчанию dbt обязан
+  стоять в том же окружении, что и Airflow).
+- Пакеты, которые elementary тянет транзитивно (`dbt_utils`), объявляй в `packages.yml`
+  явно: dbt сверяет число пакетов в `packages.yml` с числом каталогов в `dbt_packages`,
+  а Cosmos работает с копией проекта без `package-lock.yml`.
 
 ## 9. Документация
 
@@ -178,7 +193,9 @@ README.md обязателен и содержит разделы:
 ## 12. Текущее состояние репозитория
 
 - Инфраструктура: `postgres_18.6-trixie`, `clickhouse_26.9.13.15-jammy`,
-  `airflow_3.3.2-python3.12` (`airflow standalone`), `dagster_1.13.26`
+  `airflow_3.3.2-python3.12` (`airflow standalone`; astronomer-cosmos 1.15.1 + dbt-core
+  1.12.6 + dbt-postgres 1.11.0 + dbt-clickhouse 1.10.3 + elementary-data 0.26.1 в venv
+  `/home/airflow/dbt-venv`), `dagster_1.13.26`
   (`dagster dev`: webserver + daemon, dagster 1.13.26 + dagster-webserver 1.13.26 +
   dagster-postgres 0.29.26), `dbt-core_1.12.6`
   (dbt-core 1.12.6 + dbt-postgres 1.11.0 + dbt-clickhouse 1.10.3 +
@@ -189,7 +206,8 @@ README.md обязателен и содержит разделы:
   содержит варианты команд для PowerShell и `bash`/`zsh`.
   `dbt-core_1.12.6` закреплён за `linux/amd64` (образ dbt-core не публикует arm64),
   на arm64 он работает через эмуляцию. Остальные базовые образы multi-arch.
-- dbt-проект: `volume/dbt`; DAG-и Airflow: `volume/airflow/dags`; код-локация Dagster
-  и `dagster.yaml`: `volume/dagster`.
+- dbt-проект: `volume/dbt` (монтируется в `dbt-core_1.12.6` как `/dbt/project`, в
+  `airflow_3.3.2-python3.12` как `/opt/airflow/dbt` только для чтения); DAG-и Airflow:
+  `volume/airflow/dags`; код-локация Dagster и `dagster.yaml`: `volume/dagster`.
 - Отчёты и артефакты контейнеров: `<директория>/data` (bind-mount, покрыт `.gitignore`).
 - `.tmp/` — локальные черновики (`.tmp` в `.gitignore`), в инфраструктуру не входят.

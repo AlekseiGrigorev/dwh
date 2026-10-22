@@ -21,6 +21,7 @@ ClickHouse, Apache Airflow, Dagster, dbt Core, Elementary и Apache Superset.
 | dbt-postgres | `1.11.0` |
 | dbt-clickhouse | `1.10.3` |
 | Elementary CLI / dbt package | `0.26.1` |
+| astronomer-cosmos | `1.15.1` |
 | Apache Superset | `6.1.0` (Python 3.10) |
 | psycopg2-binary (Superset) | `2.9.13` |
 | clickhouse-connect | `0.15.1` |
@@ -29,6 +30,11 @@ dbt 2.x в этой инфраструктуре не используется: 
 `dbt-postgres 1.11.0` собраны под `dbt-core 1.x` (у `dbt-postgres` требование
 `dbt-core<2.0`). Связка `dbt-core 1.12.6 + dbt-postgres 1.11.0 +
 dbt-clickhouse 1.10.3 + elementary-data 0.26.1` проверена на совместимость.
+
+dbt используется в двух местах: контейнер `dbt-core_1.12.6` (CLI-команды и отчёты) и
+venv `/home/airflow/dbt-venv` внутри образа Airflow, из которого dbt запускает Cosmos.
+Версии пакетов в обоих местах совпадают, артефакты не пересекаются:
+`dbt-core_1.12.6/data` и `airflow_3.3.2-python3.12/data/dbt-artifacts`.
 
 Dagster собран из официального образа `python:3.12.15-slim-trixie`: отдельного
 официального образа Dagster с тегом версии не публикуется, поэтому версия
@@ -349,6 +355,41 @@ ClickHouse. Результат виден в UI (`http://localhost:18080`) и в
 DAG создаётся на паузе (`AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true`): включите его
 в UI или командой `docker compose exec airflow_3.3.2-python3.12 airflow dags unpause dwh_healthcheck`.
 
+### dbt в Airflow (Cosmos)
+
+Cosmos превращает dbt-модели в задачи Airflow. В контейнер Airflow монтируется тот же
+dbt-проект `volume/dbt` (только для чтения), dbt запускается из venv образа
+`/home/airflow/dbt-venv/bin/dbt`, а артефакты пишутся в
+`airflow_3.3.2-python3.12/data/dbt-artifacts` (`target`, `logs`, `dbt_packages`).
+
+DAG `dwh_dbt_example` (файл `volume/airflow/dags/dwh_dbt_example.py`) запускает
+пример-модель `models/example` по target `postgres`. Пакеты dbt ставит entrypoint
+контейнера при старте (если каталога `dbt-artifacts/dbt_packages/elementary` нет),
+поэтому в конфигурации Cosmos указано `install_dbt_deps=False` и `dbt deps` не
+выполняется при каждом парсинге DAG. Так как dbt установлен в venv, а не в окружение
+Airflow, в DAG заданы `dbt_executable_path` (из `DBT_EXECUTABLE_PATH`) и
+`invocation_mode=InvocationMode.SUBPROCESS`: режим по умолчанию `InvocationMode.DBT_RUNNER`
+требует dbt в том же окружении, что и Airflow, и запрещает свой путь к бинарю.
+Пакеты обновляются в контейнере `dbt-core_1.12.6`
+(`docker compose exec dbt-core_1.12.6 dbt deps`), после чего обновлённый
+`volume/dbt/package-lock.yml` коммитится: каталог проекта смонтирован в Airflow только
+для чтения, поэтому lock обновляется в dbt-контейнере, а Airflow подхватывает его при
+следующем старте.
+
+Проверки (команды одинаковы на всех ОС):
+
+```console
+docker compose exec airflow_3.3.2-python3.12 /home/airflow/dbt-venv/bin/dbt --version
+docker compose exec airflow_3.3.2-python3.12 /home/airflow/dbt-venv/bin/dbt debug --target postgres --project-dir /opt/airflow/dbt --profiles-dir /opt/airflow/dbt
+docker compose exec airflow_3.3.2-python3.12 airflow dags list-import-errors
+docker compose exec airflow_3.3.2-python3.12 airflow dags test dwh_dbt_example
+```
+
+Если при старте `dbt deps` не смог скачать пакеты (например, нет доступа к dbt Hub),
+предупреждение и готовая команда для ручной установки попадут в
+`docker compose logs -f airflow_3.3.2-python3.12`. Без пакетов Cosmos не распарсит
+проект, и DAG не появится в списке.
+
 ## Dagster
 
 Код-локация лежит в `volume/dagster` и монтируется в контейнер как `/opt/dagster/app`
@@ -405,6 +446,12 @@ docker compose exec dbt-core_1.12.6 dbt run --select elementary --target postgre
 `dbt deps` скачивает пакет `elementary-data/elementary 0.26.1` и его зависимости в
 `dbt-core_1.12.6/data/dbt_packages`; файл `volume/dbt/package-lock.yml` фиксирует
 версии пакетов и коммитится в репозиторий.
+
+`dbt_utils` объявлен в `packages.yml` явно, хотя elementary тянет его транзитивно: dbt
+сверяет число пакетов в `packages.yml` с числом каталогов в `dbt_packages`, а в Cosmos
+dbt работает с копией проекта без `package-lock.yml`, и без явного объявления `dbt ls`
+падает с `UninstalledPackagesFoundError`. После правки `packages.yml` обновите
+`package-lock.yml` (`dbt deps` в `dbt-core_1.12.6`) и закоммитьте оба файла.
 
 При старте контейнера entrypoint сам выполняет `dbt deps`, если пакеты отсутствуют
 или изменились `packages.yml`/`package-lock.yml` (маркер —
@@ -535,7 +582,7 @@ docker compose logs -f superset_6.1.0
 
 ```text
 .
-├── airflow_3.3.2-python3.12/              # Dockerfile, entrypoint, data/logs
+├── airflow_3.3.2-python3.12/              # Dockerfile, entrypoint, data/logs, data/dbt-artifacts
 ├── clickhouse_26.9.13.15-jammy/           # Dockerfile контейнера ClickHouse
 ├── dagster_1.13.26/                       # Dockerfile, entrypoint, data/ (DAGSTER_HOME)
 ├── dbt-core_1.12.6/                       # Dockerfile, data/ (target, elementary, ...)
@@ -583,6 +630,10 @@ docker compose images dbt-core_1.12.6
 # Пересобрать один сервис
 docker compose up -d --build airflow_3.3.2-python3.12
 
+# dbt и Cosmos внутри образа Airflow (dbt — из venv, который использует Cosmos)
+docker compose exec airflow_3.3.2-python3.12 /home/airflow/dbt-venv/bin/dbt --version
+docker compose exec airflow_3.3.2-python3.12 python -c "import importlib.metadata as m; print(m.version('astronomer-cosmos'))"
+
 # Открыть Midnight Commander внутри контейнера (mc установлен во всех образах)
 docker compose exec postgres_18.6-trixie mc
 docker compose exec clickhouse_26.9.13.15-jammy mc
@@ -612,3 +663,7 @@ docker compose exec superset_6.1.0 mc
   зависит от `manifest.json`/`catalog.json` и обычно требует HTTP-сервера.
 - Nginx в инфраструктуру не входит: HTML-отчёты открываются напрямую, а
   `dbt docs serve` — встроенный сервер dbt, который запускается по требованию.
+- dbt в образе Airflow установлен в отдельный venv (`/home/airflow/dbt-venv`), поэтому
+  версии dbt не конфликтуют с зависимостями Airflow; путь к бинарю передаётся DAG-ам
+  переменной `DBT_EXECUTABLE_PATH`. Каталог `volume/dbt` монтируется в Airflow только
+  для чтения, `package-lock.yml` обновляется в контейнере `dbt-core_1.12.6`.

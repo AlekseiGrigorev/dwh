@@ -46,11 +46,28 @@ services:
       # Connections для DAG-ов: smoke-test и примеры подключения к обеим БД.
       AIRFLOW_CONN_POSTGRES_DWH: "postgresql://${POSTGRES_USER:?POSTGRES_USER is not set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set}@postgres_18.6-trixie:5432/${POSTGRES_DB:?POSTGRES_DB is not set}"
       AIRFLOW_CONN_CLICKHOUSE_DWH: "clickhouse://${CLICKHOUSE_USER:?CLICKHOUSE_USER is not set}:${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}@clickhouse_26.9.13.15-jammy:8123/${CLICKHOUSE_DB:?CLICKHOUSE_DB is not set}"
+      # dbt для Cosmos: проект — тот же volume/dbt, что монтируется в dbt-core_1.12.6,
+      # dbt запускается из venv образа, артефакты пишутся в data/dbt-artifacts.
+      DBT_PROJECT_DIR: /opt/airflow/dbt
+      DBT_EXECUTABLE_PATH: /home/airflow/dbt-venv/bin/dbt
+      DBT_ARTIFACTS_DIR: /opt/airflow/dbt-artifacts
+      DBT_PROFILES_DIR: /opt/airflow/dbt
+      DBT_TARGET_PATH: /opt/airflow/dbt-artifacts/target
+      DBT_LOG_PATH: /opt/airflow/dbt-artifacts/logs
+      DBT_PACKAGES_INSTALL_PATH: /opt/airflow/dbt-artifacts/dbt_packages
+      DBT_POSTGRES_SCHEMA: ${DBT_POSTGRES_SCHEMA:?DBT_POSTGRES_SCHEMA is not set}
+      DBT_CLICKHOUSE_SCHEMA: ${DBT_CLICKHOUSE_SCHEMA:?DBT_CLICKHOUSE_SCHEMA is not set}
     ports:
       - "18080:8080"
     volumes:
       - ./airflow_3.3.2-python3.12/data/logs:/opt/airflow/logs:rw
       - ./volume/airflow/dags:/opt/airflow/dags:ro
+      # dbt-проект — только для чтения: Cosmos работает с временной копией проекта,
+      # а package-lock.yml обновляется в dbt-core_1.12.6.
+      - ./volume/dbt:/opt/airflow/dbt:ro
+      # Артефакты dbt (target, logs, dbt_packages) — отдельно от dbt-core_1.12.6;
+      # владельца каталога выставляет entrypoint.
+      - ./airflow_3.3.2-python3.12/data/dbt-artifacts:/opt/airflow/dbt-artifacts:rw
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
